@@ -1,0 +1,99 @@
+services:
+  db:
+    image: postgres:13
+    container_name: biblioteca-db
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=biblioteca
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  web:
+    build: 
+      context: ./library-service
+      dockerfile: Dockerfile
+    container_name: library-service-api
+    command: uvicorn pkg.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - localstack
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/biblioteca
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - TOPIC_ARN=arn:aws:sns:us-east-1:000000000000:email-notifications-topic
+    volumes:
+      - ./library-service:/app
+
+  localstack:
+    image: localstack/localstack
+    container_name: localstack_main
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sns,sqs
+      - DEFAULT_REGION=us-east-1
+    volumes:
+      - ./init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
+
+  notification-service:
+    build: 
+      context: ./notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service-app
+    command: python worker.py 
+    ports:
+      - "8001:8000"
+    depends_on:
+      - mongo
+      - localstack
+    environment:
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - MONGO_URL=mongodb://root:pass@mongo:27017/
+      # Credenziali Mailtrap (Verifica che siano aggiornate)
+      - MAIL_SERVER=sandbox.smtp.mailtrap.io
+      - MAIL_PORT=2525
+      - MAIL_USERNAME=a4591b8dc1a2fc
+      - MAIL_PASSWORD=2bc8d0d9b7842d
+    volumes:
+      - ./notification-service:/app
+
+  mongo:
+    image: mongo
+    container_name: mongo-db
+    restart: always
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=pass
+    volumes:
+      - mongo-db-data:/data/db
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin_container
+    environment:
+      PGADMIN_DEFAULT_EMAIL: "admin@admin.com"
+      PGADMIN_DEFAULT_PASSWORD: "root"
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+
+  mongo-express:
+    image: mongo-express
+    container_name: mongo-express-ui
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=root
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=pass
+      - ME_CONFIG_MONGODB_URL=mongodb://root:pass@mongo:27017/
+    depends_on:
+      - mongo
+
+volumes:
+  postgres_data:
+  mongo-db-data:
