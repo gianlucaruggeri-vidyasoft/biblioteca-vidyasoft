@@ -49,7 +49,7 @@ def send_and_log_email(to_email, subject, body):
         print(f"✅ Email inviata a {to_email}")
         stato = "SUCCESSO"
     except Exception as e:
-        print(f"❌ Errore SMTP: {e}")
+        print(f" Errore SMTP: {e}")
         stato = f"ERRORE: {str(e)}"
 
     log_data = {
@@ -60,7 +60,7 @@ def send_and_log_email(to_email, subject, body):
         "stato": stato
     }
     collection.insert_one(log_data)
-    print("💾 Notifica registrata su MongoDB")
+    print(" Notifica registrata su MongoDB")
 
 QUEUE_URL = get_queue_url()
 print(f"📩 Worker attivo su {QUEUE_URL}...")
@@ -92,5 +92,5 @@ while True:
                 )
     
     except Exception as e:
-        print(f"⚠️ Errore Worker: {e}")
+        print(f" Errore Worker: {e}")
         time.sleep(2)
