@@ -1,10 +1,7 @@
 from datetime import datetime
-
 from sqlalchemy.orm import Session
-
 from pkg.models.prenotazione import PrenotazioneDB
 from pkg.schemas.prenotazione import PrenotazioneCreate, PrenotazioneUpdate
-
 
 class PrenotazioneRepository:
     def crea(self, db: Session, dati: PrenotazioneCreate):

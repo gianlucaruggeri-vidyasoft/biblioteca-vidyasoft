@@ -12,4 +12,3 @@ class UtenteDB(Base):
     email = Column(String, unique=True, index=True)
 
     prenotazioni = relationship("PrenotazioneDB", back_populates="utente")
-

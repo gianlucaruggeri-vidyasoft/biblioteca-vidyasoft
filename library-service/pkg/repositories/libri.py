@@ -1,11 +1,10 @@
 from sqlalchemy.orm import Session
-
 from pkg.models.libro import LibroDB
-from pkg.schemas.libro import LibroBase
-
+from pkg.schemas.libro import LibroCreate, LibroUpdate
 
 class LibroRepository:
-    def crea(self, db: Session, libro: LibroBase):
+    def crea(self, db: Session, libro: LibroCreate):
+        # model_dump() estrae automaticamente tutti i campi, inclusi autore e citazioni
         db_libro = LibroDB(**libro.model_dump())
         db.add(db_libro)
         db.commit()
@@ -18,12 +17,12 @@ class LibroRepository:
     def leggi_uno(self, db: Session, id: int):
         return db.query(LibroDB).filter(LibroDB.id == id).first()
 
-    def aggiorna(self, db: Session, id: int, dati: LibroBase):
+    def aggiorna(self, db: Session, id: int, dati: LibroUpdate):
         obj = db.query(LibroDB).filter(LibroDB.id == id).first()
         if obj:
-            obj.titolo = dati.titolo
-            obj.autore = dati.autore
-            obj.copie_totali = dati.copie_totali
+            # exclude_unset=True ignora i campi non inviati (None)
+            for key, value in dati.model_dump(exclude_unset=True).items():
+                setattr(obj, key, value)
             db.commit()
             db.refresh(obj)
             return obj

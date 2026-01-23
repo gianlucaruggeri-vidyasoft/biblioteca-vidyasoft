@@ -1,84 +1,89 @@
 import json
 import boto3
 import botocore
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
 
 from pkg.config.database import get_db, AWS_PARAMS, TOPIC_ARN
-from pkg.repositories.libri import LibroRepository
 from pkg.repositories.prenotazioni import PrenotazioneRepository
+from pkg.repositories.libri import LibroRepository
 from pkg.repositories.utenti import UtenteRepository
 from pkg.schemas.prenotazione import Prenotazione, PrenotazioneCreate, PrenotazioneUpdate
-from pkg.services.reservations import PrenotazioneService
 
-router = APIRouter(prefix="/prenotazioni", tags=["Prenotazioni"])
+router = APIRouter(prefix="/api/internal/prenotazioni", tags=["Prenotazioni"])
 
 sns_client = boto3.client("sns", **AWS_PARAMS)
 
+prenotazioni_repo = PrenotazioneRepository()
 libri_repo = LibroRepository()
 utenti_repo = UtenteRepository()
-prenotazioni_repo = PrenotazioneRepository()
-prenotazione_service = PrenotazioneService(libri_repo, utenti_repo, prenotazioni_repo)
 
-@router.post("/", response_model=Prenotazione)
-def crea_prenotazione(pren: PrenotazioneCreate, db: Session = Depends(get_db)):
+@router.get("/v1", response_model=List[Prenotazione])
+def lista_prenotazioni(db: Session = Depends(get_db)):
+    return prenotazioni_repo.leggi_tutti(db)
+
+@router.get("/{id}/v1", response_model=Prenotazione)
+def leggi_prenotazione(id: int, db: Session = Depends(get_db)):
+    pren = prenotazioni_repo.leggi_uno(db, id)
+    if not pren:
+        raise HTTPException(status_code=404, detail="Prenotazione non trovata")
+    return pren
+
+@router.post("/v1", response_model=Prenotazione)
+def crea_prenotazione(dati: PrenotazioneCreate, db: Session = Depends(get_db)):
+    libro = libri_repo.leggi_uno(db, dati.libro_id)
+    utente = utenti_repo.leggi_uno(db, dati.utente_id)
+
+    if not libro:
+        raise HTTPException(status_code=404, detail=f"Libro {dati.libro_id} non trovato")
+    if not utente:
+        raise HTTPException(status_code=404, detail=f"Utente {dati.utente_id} non trovato")
+
     try:
-        nuova_prenotazione = prenotazione_service.crea(db, pren)
-        
-        print(f"\n [DEBUG] Prenotazione salvata su DB (ID: {nuova_prenotazione.id})")
-        print(f" [DEBUG] Invio notifica a Topic: {TOPIC_ARN}")
+        nuova_prenotazione = prenotazioni_repo.crea(db, dati)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Errore DB: {str(e)}")
 
+    try:
         payload_email = {
-            "to_email": nuova_prenotazione.utente.email,
-            "subject": "Conferma Prenotazione Libro",
-            "body": f"Ciao {nuova_prenotazione.utente.nome}, hai prenotato con successo '{nuova_prenotazione.libro.titolo}'!"
+            "email_type": "RESERVE",
+            "reservationId": nuova_prenotazione.id,
+            "to_email": utente.email,
+            "subject": "Conferma Prenotazione",
+            "body": f"Ciao {utente.nome}, hai prenotato '{libro.titolo}'.",
+            "autore": libro.autore,
+            "citazioni": libro.citazioni
         }
 
-        try:
-            response = sns_client.publish(
-                TopicArn=TOPIC_ARN,
-                Message=json.dumps(payload_email)
-            )
-            print(f" [DEBUG] Notifica SNS inviata con successo! ID: {response.get('MessageId')}")
-        except botocore.exceptions.ClientError as e:
-            print(f" [DEBUG ERROR] AWS SNS ha risposto con errore: {e.response['Error']['Message']}")
-        except Exception as e:
-            print(f" [DEBUG ERROR] Errore generico invio SNS: {str(e)}")
+        sns_client.publish(
+            TopicArn=TOPIC_ARN,
+            Message=json.dumps(payload_email)
+        )
 
-        return nuova_prenotazione
+    except botocore.exceptions.ClientError:
+        pass
+    except Exception:
+        pass
 
-    except ValueError as exc:
-        print(f" [DEBUG] Errore validazione: {str(exc)}")
-        raise HTTPException(status_code=404, detail=str(exc))
-    except Exception as e:
-        print(f" [DEBUG] Errore imprevisto nella POST: {str(e)}")
-        raise HTTPException(status_code=500, detail="Errore interno del server")
+    return nuova_prenotazione
 
-@router.put("/{prenotazione_id}/termina", response_model=Prenotazione)
-def termina_prenotazione(prenotazione_id: int, db: Session = Depends(get_db)):
-    print(f" [DEBUG] Termino prenotazione ID: {prenotazione_id}")
-    try:
-        result = prenotazione_service.termina(db, prenotazione_id)
-        if not result:
-            raise HTTPException(status_code=404, detail="Prenotazione non trovata")
-        return result
-    except Exception as e:
-        print(f" [DEBUG] Errore nella PUT: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+@router.put("/{id}/v1", response_model=Prenotazione)
+def aggiorna_totale_prenotazione(id: int, dati: PrenotazioneUpdate, db: Session = Depends(get_db)):
+    pren = prenotazioni_repo.aggiorna(db, id, dati)
+    if not pren:
+        raise HTTPException(status_code=404, detail="Prenotazione non trovata")
+    return pren
 
-@router.patch("/{prenotazione_id}", response_model=Prenotazione)
-def aggiorna_prenotazione(
-    prenotazione_id: int,
-    payload: PrenotazioneUpdate,
-    db: Session = Depends(get_db),
-):
-    print(f" [DEBUG] Aggiorno prenotazione ID: {prenotazione_id}")
-    try:
-        result = prenotazione_service.aggiorna(db, prenotazione_id, payload)
-        if not result:
-            raise HTTPException(status_code=404, detail="Prenotazione non trovata")
-        return result
-    except Exception as e:
-        print(f" [DEBUG] Errore nella PATCH: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+@router.patch("/{id}/v1", response_model=Prenotazione)
+def aggiorna_parziale_prenotazione(id: int, dati: PrenotazioneUpdate, db: Session = Depends(get_db)):
+    if dati.attiva is False:
+        pren = prenotazioni_repo.termina(db, id)
+        if not pren:
+             raise HTTPException(status_code=400, detail="Prenotazione non trovata o già terminata")
+        return pren
+
+    pren = prenotazioni_repo.aggiorna(db, id, dati)
+    if not pren:
+        raise HTTPException(status_code=404, detail="Prenotazione non trovata")
+    return pren

@@ -18,4 +18,3 @@ class PrenotazioneDB(Base):
 
     libro = relationship("LibroDB", back_populates="prenotazioni")
     utente = relationship("UtenteDB", back_populates="prenotazioni")
-
