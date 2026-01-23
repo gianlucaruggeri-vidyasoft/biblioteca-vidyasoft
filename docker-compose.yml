@@ -1,4 +1,7 @@
+version: '3.8'
+
 services:
+  # 1. DATABASE SQL (Postgres)
   db:
     image: postgres:13
     container_name: biblioteca-db
@@ -9,6 +12,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  # 2. PRODUCER (API Python)
   web:
     build: 
       context: ./library-service
@@ -23,10 +27,14 @@ services:
     environment:
       - DATABASE_URL=postgresql://user:password@db:5432/biblioteca
       - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
       - TOPIC_ARN=arn:aws:sns:us-east-1:000000000000:email-notifications-topic
     volumes:
       - ./library-service:/app
 
+  # 3. AWS FAKE (LocalStack)
   localstack:
     image: localstack/localstack
     container_name: localstack_main
@@ -38,6 +46,7 @@ services:
     volumes:
       - ./init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
 
+  # 4. CONSUMER (Worker - Notification Service)
   notification-service:
     build: 
       context: ./notification-service
@@ -47,20 +56,29 @@ services:
     ports:
       - "8001:8000"
     depends_on:
-      - mongo
+      - mongo        # <--- Qui dice che dipende da "mongo"
       - localstack
     environment:
+      - PYTHONUNBUFFERED=1  # <--- FONDAMENTALE PER I LOG
       - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
       - MONGO_URL=mongodb://root:pass@mongo:27017/
-      # Credenziali Mailtrap (Verifica che siano aggiornate)
+      # Credenziali Mailtrap
       - MAIL_SERVER=sandbox.smtp.mailtrap.io
       - MAIL_PORT=2525
       - MAIL_USERNAME=a4591b8dc1a2fc
       - MAIL_PASSWORD=2bc8d0d9b7842d
+      - SMTP_SERVER=sandbox.smtp.mailtrap.io
+      - SMTP_PORT=2525
+      - SMTP_USER=a4591b8dc1a2fc
+      - SMTP_PASSWORD=2bc8d0d9b7842d
     volumes:
       - ./notification-service:/app
 
-  mongo:
+  # 5. DATABASE NOSQL (MongoDB) - IL PEZZO CHE MANCAVA!
+  mongo:             # <--- Ecco il servizio "mongo" che cercava!
     image: mongo
     container_name: mongo-db
     restart: always
@@ -70,6 +88,7 @@ services:
     volumes:
       - mongo-db-data:/data/db
 
+  # 6. PGADMIN
   pgadmin:
     image: dpage/pgadmin4
     container_name: pgadmin_container
@@ -81,6 +100,7 @@ services:
     depends_on:
       - db
 
+  # 7. MONGO EXPRESS
   mongo-express:
     image: mongo-express
     container_name: mongo-express-ui
